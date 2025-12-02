@@ -31,6 +31,10 @@ logger = logging.getLogger('google_adk.' + __name__)
 # capabilities.
 _MODEL_ACCESSIBLE_URI_SCHEMES = {'gs', 'https', 'http'}
 
+# Maximum file size for inline_data (20MB as per Gemini API documentation)
+# https://ai.google.dev/gemini-api/docs/files
+_MAX_INLINE_DATA_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
+
 
 class SaveFilesAsArtifactsPlugin(BasePlugin):
   """A plugin that saves files embedded in user messages as artifacts.
@@ -81,8 +85,28 @@ class SaveFilesAsArtifactsPlugin(BasePlugin):
         continue
 
       try:
-        # Use display_name if available, otherwise generate a filename
+        # Check file size before processing
         inline_data = part.inline_data
+        file_size = len(inline_data.data) if inline_data.data else 0
+
+        if file_size > _MAX_INLINE_DATA_SIZE_BYTES:
+          # File exceeds the inline_data limit
+          file_size_mb = file_size / (1024 * 1024)
+          limit_mb = _MAX_INLINE_DATA_SIZE_BYTES / (1024 * 1024)
+          error_message = (
+              f'File size ({file_size_mb:.2f} MB) exceeds the maximum allowed'
+              f' size for inline uploads ({limit_mb:.0f} MB). Please use the'
+              f' Files API to upload files larger than {limit_mb:.0f} MB. See'
+              ' https://ai.google.dev/gemini-api/docs/files for more'
+              ' information.'
+          )
+          logger.error(error_message)
+          # Replace with error message part
+          new_parts.append(types.Part(text=f'[Upload Error: {error_message}]'))
+          modified = True
+          continue
+
+        # Use display_name if available, otherwise generate a filename
         file_name = inline_data.display_name
         if not file_name:
           file_name = f'artifact_{invocation_context.invocation_id}_{i}'
