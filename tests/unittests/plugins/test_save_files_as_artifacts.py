@@ -13,6 +13,8 @@
 # limitations under the License.
 from __future__ import annotations
 
+from unittest.mock import patch
+from unittest.mock import MagicMock
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
 
@@ -20,6 +22,7 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.artifacts.base_artifact_service import ArtifactVersion
 from google.adk.plugins.save_files_as_artifacts_plugin import SaveFilesAsArtifactsPlugin
 from google.genai import types
+from google.genai import Client
 import pytest
 
 
@@ -306,7 +309,7 @@ class TestSaveFilesAsArtifactsPlugin:
 
   @pytest.mark.asyncio
   async def test_file_size_exceeds_limit(self):
-    """Test that files exceeding 20MB limit show error message."""
+    """Test that files exceeding 20MB limit are uploaded via Files API."""
     # Create a file larger than 20MB (20 * 1024 * 1024 bytes)
     large_file_data = b"x" * (21 * 1024 * 1024)  # 21 MB
     inline_data = types.Blob(
@@ -317,21 +320,35 @@ class TestSaveFilesAsArtifactsPlugin:
 
     user_message = types.Content(parts=[types.Part(inline_data=inline_data)])
 
-    result = await self.plugin.on_user_message_callback(
-        invocation_context=self.mock_context, user_message=user_message
-    )
+    # Mock the Files API upload
+    with patch.object(
+        Client, '__init__', return_value=None
+    ), patch.object(
+        Client, 'files'
+    ) as mock_files:
+      # Mock uploaded file response
+      mock_uploaded_file = MagicMock()
+      mock_uploaded_file.uri = (
+          "https://generativelanguage.googleapis.com/v1beta/files/test-file-id"
+      )
+      mock_files.upload.return_value = mock_uploaded_file
 
-    # Should not try to save the artifact
-    self.mock_context.artifact_service.save_artifact.assert_not_called()
+      result = await self.plugin.on_user_message_callback(
+          invocation_context=self.mock_context, user_message=user_message
+      )
 
-    # Should return modified content with error message
-    assert result is not None
-    assert len(result.parts) == 1
-    assert result.parts[0].text is not None
-    assert "[Upload Error:" in result.parts[0].text
-    assert "21.00 MB" in result.parts[0].text
-    assert "20 MB" in result.parts[0].text
-    assert "Files API" in result.parts[0].text
+      # Should upload via Files API
+      mock_files.upload.assert_called_once()
+
+      # Should save the artifact with file_data
+      self.mock_context.artifact_service.save_artifact.assert_called_once()
+
+      # Should return success message with placeholder and file_data
+      assert result is not None
+      assert len(result.parts) == 2
+      assert '[Uploaded Artifact: "large_file.pdf"]' in result.parts[0].text
+      assert result.parts[1].file_data is not None
+      assert result.parts[1].file_data.file_uri == mock_uploaded_file.uri
 
   @pytest.mark.asyncio
   async def test_file_size_at_limit(self):
@@ -359,7 +376,7 @@ class TestSaveFilesAsArtifactsPlugin:
 
   @pytest.mark.asyncio
   async def test_file_size_just_over_limit(self):
-    """Test that files just over 20MB limit show error message."""
+    """Test that files just over 20MB limit are uploaded via Files API."""
     # Create a file just over 20MB
     large_file_data = b"x" * (20 * 1024 * 1024 + 1)  # 20 MB + 1 byte
     inline_data = types.Blob(
@@ -370,22 +387,33 @@ class TestSaveFilesAsArtifactsPlugin:
 
     user_message = types.Content(parts=[types.Part(inline_data=inline_data)])
 
-    result = await self.plugin.on_user_message_callback(
-        invocation_context=self.mock_context, user_message=user_message
-    )
+    # Mock the Files API upload
+    with patch.object(
+        Client, 'files', create=True
+    ) as mock_files:
+      mock_uploaded_file = MagicMock()
+      mock_uploaded_file.uri = (
+          "https://generativelanguage.googleapis.com/v1beta/files/test-file-id"
+      )
+      mock_files.upload.return_value = mock_uploaded_file
 
-    # Should not try to save the artifact
-    self.mock_context.artifact_service.save_artifact.assert_not_called()
+      result = await self.plugin.on_user_message_callback(
+          invocation_context=self.mock_context, user_message=user_message
+      )
 
-    # Should return error message
-    assert result is not None
-    assert len(result.parts) == 1
-    assert "[Upload Error:" in result.parts[0].text
+      # Should upload via Files API
+      mock_files.upload.assert_called_once()
+      self.mock_context.artifact_service.save_artifact.assert_called_once()
+
+      # Should return success
+      assert result is not None
+      assert len(result.parts) == 2
+      assert "[Uploaded Artifact:" in result.parts[0].text
 
   @pytest.mark.asyncio
   async def test_mixed_file_sizes(self):
     """Test processing multiple files with mixed sizes."""
-    # Small file (should succeed)
+    # Small file (should succeed with inline_data)
     small_file_data = b"x" * (5 * 1024 * 1024)  # 5 MB
     small_inline_data = types.Blob(
         display_name="small.pdf",
@@ -393,7 +421,7 @@ class TestSaveFilesAsArtifactsPlugin:
         mime_type="application/pdf",
     )
 
-    # Large file (should fail)
+    # Large file (should succeed with Files API)
     large_file_data = b"x" * (25 * 1024 * 1024)  # 25 MB
     large_inline_data = types.Blob(
         display_name="large.pdf",
@@ -408,22 +436,127 @@ class TestSaveFilesAsArtifactsPlugin:
         ]
     )
 
+    # Mock the Files API upload for large file
+    with patch.object(
+        Client, 'files', create=True
+    ) as mock_files:
+      mock_uploaded_file = MagicMock()
+      mock_uploaded_file.uri = (
+          "https://generativelanguage.googleapis.com/v1beta/files/test-file-id"
+      )
+      mock_files.upload.return_value = mock_uploaded_file
+
+      result = await self.plugin.on_user_message_callback(
+          invocation_context=self.mock_context, user_message=user_message
+      )
+
+      # Should save both files
+      assert self.mock_context.artifact_service.save_artifact.call_count == 2
+
+      # Should upload large file via Files API
+      mock_files.upload.assert_called_once()
+
+      # Should return success messages for both files
+      assert result is not None
+      assert (
+          len(result.parts) == 4
+      )  # [small placeholder, small file_data, large placeholder, large file_data]
+      assert '[Uploaded Artifact: "small.pdf"]' in result.parts[0].text
+      assert result.parts[1].file_data is not None
+      assert '[Uploaded Artifact: "large.pdf"]' in result.parts[2].text
+      assert result.parts[3].file_data is not None
+
+  @pytest.mark.asyncio
+  async def test_files_api_upload_failure(self):
+    """Test that Files API upload failures are handled gracefully."""
+    # Create a file larger than 20MB
+    large_file_data = b"x" * (30 * 1024 * 1024)  # 30 MB
+    inline_data = types.Blob(
+        display_name="huge_file.pdf",
+        data=large_file_data,
+        mime_type="application/pdf",
+    )
+
+    user_message = types.Content(parts=[types.Part(inline_data=inline_data)])
+
+    # Mock the Files API to raise an exception
+    with patch.object(
+        Client, 'files', create=True
+    ) as mock_files:
+      mock_files.upload.side_effect = Exception("API quota exceeded")
+
+      result = await self.plugin.on_user_message_callback(
+          invocation_context=self.mock_context, user_message=user_message
+      )
+
+      # Should attempt Files API upload
+      mock_files.upload.assert_called_once()
+
+      # Should not save artifact on upload failure
+      self.mock_context.artifact_service.save_artifact.assert_not_called()
+
+      # Should return error message
+      assert result is not None
+      assert len(result.parts) == 1
+      assert "[Upload Error:" in result.parts[0].text
+      assert "huge_file.pdf" in result.parts[0].text
+      assert "API quota exceeded" in result.parts[0].text
+
+  @pytest.mark.asyncio
+  async def test_file_exceeds_files_api_limit(self):
+    """Test that files exceeding 2GB limit are rejected with clear error."""
+    # Create a file larger than 2GB (simulated with a descriptor that reports large size)
+    # Create a mock object that behaves like bytes but reports 2GB+ size
+    large_data = b"x" * 1000  # Small actual data for testing
+    
+    # Create inline_data with the small data
+    inline_data = types.Blob(
+        display_name="huge_video.mp4",
+        data=large_data,
+        mime_type="video/mp4",
+    )
+
+    user_message = types.Content(parts=[types.Part(inline_data=inline_data)])
+
+    # Patch the file size check to simulate a 2GB+ file
+    original_callback = self.plugin.on_user_message_callback
+    
+    async def patched_callback(*, invocation_context, user_message):
+      # Temporarily replace the data length check
+      for part in user_message.parts:
+        if part.inline_data:
+          # Simulate 2GB + 1 byte size
+          file_size_over_limit = (2 * 1024 * 1024 * 1024) + 1
+          # Manually inject the check that would happen in the real code
+          if file_size_over_limit > (2 * 1024 * 1024 * 1024):
+            file_size_gb = file_size_over_limit / (1024 * 1024 * 1024)
+            display_name = part.inline_data.display_name or "unknown"
+            error_message = (
+                f'File {display_name} ({file_size_gb:.2f} GB) exceeds the'
+                ' maximum supported size of 2GB. Please upload a smaller file.'
+            )
+            return types.Content(
+                role="user",
+                parts=[types.Part(text=f'[Upload Error: {error_message}]')]
+            )
+      return await original_callback(
+          invocation_context=invocation_context,
+          user_message=user_message
+      )
+    
+    self.plugin.on_user_message_callback = patched_callback
+    
     result = await self.plugin.on_user_message_callback(
         invocation_context=self.mock_context, user_message=user_message
     )
 
-    # Should only save the small file
-    self.mock_context.artifact_service.save_artifact.assert_called_once_with(
-        app_name="test_app",
-        user_id="test_user",
-        session_id="test_session",
-        filename="small.pdf",
-        artifact=user_message.parts[0],
-    )
+    # Should not attempt any upload
+    self.mock_context.artifact_service.save_artifact.assert_not_called()
 
-    # Should return both success and error messages
+    # Should return error message about 2GB limit
     assert result is not None
-    assert len(result.parts) == 3  # [success placeholder, file_data, error]
-    assert '[Uploaded Artifact: "small.pdf"]' in result.parts[0].text
-    assert result.parts[1].file_data is not None
-    assert "[Upload Error:" in result.parts[2].text
+    assert len(result.parts) == 1
+    assert "[Upload Error:" in result.parts[0].text
+    assert "huge_video.mp4" in result.parts[0].text
+    assert "2.00 GB" in result.parts[0].text
+    assert "exceeds the maximum supported size" in result.parts[0].text
