@@ -21,8 +21,8 @@ import tempfile
 from typing import Optional
 import urllib.parse
 
-from google.genai import types
 from google.genai import Client
+from google.genai import types
 
 from ..agents.invocation_context import InvocationContext
 from .base_plugin import BasePlugin

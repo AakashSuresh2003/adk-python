@@ -13,16 +13,16 @@
 # limitations under the License.
 from __future__ import annotations
 
-from unittest.mock import patch
-from unittest.mock import MagicMock
 from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 from unittest.mock import Mock
+from unittest.mock import patch
 
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.artifacts.base_artifact_service import ArtifactVersion
 from google.adk.plugins.save_files_as_artifacts_plugin import SaveFilesAsArtifactsPlugin
-from google.genai import types
 from google.genai import Client
+from google.genai import types
 import pytest
 
 
@@ -321,11 +321,10 @@ class TestSaveFilesAsArtifactsPlugin:
     user_message = types.Content(parts=[types.Part(inline_data=inline_data)])
 
     # Mock the Files API upload
-    with patch.object(
-        Client, '__init__', return_value=None
-    ), patch.object(
-        Client, 'files'
-    ) as mock_files:
+    with (
+        patch.object(Client, "__init__", return_value=None),
+        patch.object(Client, "files") as mock_files,
+    ):
       # Mock uploaded file response
       mock_uploaded_file = MagicMock()
       mock_uploaded_file.uri = (
@@ -388,9 +387,7 @@ class TestSaveFilesAsArtifactsPlugin:
     user_message = types.Content(parts=[types.Part(inline_data=inline_data)])
 
     # Mock the Files API upload
-    with patch.object(
-        Client, 'files', create=True
-    ) as mock_files:
+    with patch.object(Client, "files", create=True) as mock_files:
       mock_uploaded_file = MagicMock()
       mock_uploaded_file.uri = (
           "https://generativelanguage.googleapis.com/v1beta/files/test-file-id"
@@ -437,9 +434,7 @@ class TestSaveFilesAsArtifactsPlugin:
     )
 
     # Mock the Files API upload for large file
-    with patch.object(
-        Client, 'files', create=True
-    ) as mock_files:
+    with patch.object(Client, "files", create=True) as mock_files:
       mock_uploaded_file = MagicMock()
       mock_uploaded_file.uri = (
           "https://generativelanguage.googleapis.com/v1beta/files/test-file-id"
@@ -480,9 +475,7 @@ class TestSaveFilesAsArtifactsPlugin:
     user_message = types.Content(parts=[types.Part(inline_data=inline_data)])
 
     # Mock the Files API to raise an exception
-    with patch.object(
-        Client, 'files', create=True
-    ) as mock_files:
+    with patch.object(Client, "files", create=True) as mock_files:
       mock_files.upload.side_effect = Exception("API quota exceeded")
 
       result = await self.plugin.on_user_message_callback(
@@ -508,7 +501,7 @@ class TestSaveFilesAsArtifactsPlugin:
     # Create a file larger than 2GB (simulated with a descriptor that reports large size)
     # Create a mock object that behaves like bytes but reports 2GB+ size
     large_data = b"x" * 1000  # Small actual data for testing
-    
+
     # Create inline_data with the small data
     inline_data = types.Blob(
         display_name="huge_video.mp4",
@@ -520,7 +513,7 @@ class TestSaveFilesAsArtifactsPlugin:
 
     # Patch the file size check to simulate a 2GB+ file
     original_callback = self.plugin.on_user_message_callback
-    
+
     async def patched_callback(*, invocation_context, user_message):
       # Temporarily replace the data length check
       for part in user_message.parts:
@@ -532,20 +525,19 @@ class TestSaveFilesAsArtifactsPlugin:
             file_size_gb = file_size_over_limit / (1024 * 1024 * 1024)
             display_name = part.inline_data.display_name or "unknown"
             error_message = (
-                f'File {display_name} ({file_size_gb:.2f} GB) exceeds the'
-                ' maximum supported size of 2GB. Please upload a smaller file.'
+                f"File {display_name} ({file_size_gb:.2f} GB) exceeds the"
+                " maximum supported size of 2GB. Please upload a smaller file."
             )
             return types.Content(
                 role="user",
-                parts=[types.Part(text=f'[Upload Error: {error_message}]')]
+                parts=[types.Part(text=f"[Upload Error: {error_message}]")],
             )
       return await original_callback(
-          invocation_context=invocation_context,
-          user_message=user_message
+          invocation_context=invocation_context, user_message=user_message
       )
-    
+
     self.plugin.on_user_message_callback = patched_callback
-    
+
     result = await self.plugin.on_user_message_callback(
         invocation_context=self.mock_context, user_message=user_message
     )
