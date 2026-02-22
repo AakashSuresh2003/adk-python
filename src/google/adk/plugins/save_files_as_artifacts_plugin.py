@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import mimetypes
 import os
 import tempfile
 from typing import Optional
@@ -92,7 +93,7 @@ class SaveFilesAsArtifactsPlugin(BasePlugin):
       try:
         # Check file size before processing
         inline_data = part.inline_data
-        file_size = len(inline_data.data) if inline_data.data else 0
+        file_size = len(inline_data.data or b'')
 
         # Use display_name if available, otherwise generate a filename
         file_name = inline_data.display_name
@@ -110,7 +111,10 @@ class SaveFilesAsArtifactsPlugin(BasePlugin):
           file_size_gb = file_size / (1024 * 1024 * 1024)
           error_message = (
               f'File {display_name} ({file_size_gb:.2f} GB) exceeds the'
-              ' maximum supported size of 2GB. Please upload a smaller file.'
+              f' maximumFile {display_name} ({file_size_gb:.2f} GB) exceeds the'
+              ' maximum supported size of'
+              f' {_MAX_FILES_API_SIZE_BYTES / (1024*1024*1024):.0f}GB. Please'
+              ' upload a smaller file.'
           )
           logger.warning(error_message)
           new_parts.append(types.Part(text=f'[Upload Error: {error_message}]'))
@@ -121,8 +125,8 @@ class SaveFilesAsArtifactsPlugin(BasePlugin):
         if file_size > _MAX_INLINE_DATA_SIZE_BYTES:
           file_size_mb = file_size / (1024 * 1024)
           logger.info(
-              f'File {display_name} ({file_size_mb:.2f} MB) exceeds'
-              ' inline_data limit. Uploading via Files API...'
+              f'File {display_name} ({file_size_mb:.2f} MB) exceeds inline_data'
+              ' limit. Uploading via Files API...'
           )
 
           # Upload to Files API and convert to file_data
@@ -214,16 +218,8 @@ class SaveFilesAsArtifactsPlugin(BasePlugin):
       if inline_data.display_name and '.' in inline_data.display_name:
         file_extension = os.path.splitext(inline_data.display_name)[1]
       elif inline_data.mime_type:
-        # Simple mime type to extension mapping
-        mime_to_ext = {
-            'application/pdf': '.pdf',
-            'image/png': '.png',
-            'image/jpeg': '.jpg',
-            'image/gif': '.gif',
-            'text/plain': '.txt',
-            'application/json': '.json',
-        }
-        file_extension = mime_to_ext.get(inline_data.mime_type, '')
+        # Use mimetypes for robust mime type to extension mapping
+        file_extension = mimetypes.guess_extension(inline_data.mime_type) or ''
 
       # Create temporary file
       with tempfile.NamedTemporaryFile(
