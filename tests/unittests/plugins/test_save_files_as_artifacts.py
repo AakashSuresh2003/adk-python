@@ -40,6 +40,7 @@ class TestSaveFilesAsArtifactsPlugin:
     self.mock_context.invocation_id = "test_invocation_123"
     self.mock_context.session = Mock()
     self.mock_context.session.id = "test_session"
+    self.mock_context.session.state = {}
 
     artifact_service = Mock()
     artifact_service.save_artifact = AsyncMock(return_value=0)
@@ -525,3 +526,61 @@ class TestSaveFilesAsArtifactsPlugin:
     assert "huge_video.mp4" in result.parts[0].text
     # Note: This assertion will depend on fixing the hardcoded "2GB" in the error message.
     assert "exceeds the maximum supported size" in result.parts[0].text
+  async def test_artifact_delta_reporting(self):
+    """Test that the artifact delta is written to state then event actions."""
+
+    # 1. First Turn - Trigger user message callback
+    blob = types.Blob(
+        display_name="blob.pdf",
+        data=b"test data",
+        mime_type="application/pdf",
+    )
+    user_message = types.Content(parts=[types.Part(inline_data=blob)])
+    await self.plugin.on_user_message_callback(
+        invocation_context=self.mock_context, user_message=user_message
+    )
+
+    # Verify state is updated
+    key = "save_files_as_artifacts_plugin:pending_delta"
+    assert key in self.mock_context.session.state
+    assert self.mock_context.session.state[key] == {"blob.pdf": 0}
+
+    # 2. First Turn - Trigger before agent callback
+    callback_context = Mock()
+    callback_context.state = self.mock_context.session.state
+    callback_context.actions = Mock()
+    callback_context.actions.artifact_delta = {}
+    await self.plugin.before_agent_callback(
+        agent=Mock(), callback_context=callback_context
+    )
+
+    # Verify artifact_delta is updated and state is cleared
+    assert callback_context.actions.artifact_delta == {"blob.pdf": 0}
+    assert self.mock_context.session.state[key] == {}
+
+    # 3. Second Turn - Trigger user message callback
+    blob_2 = types.Blob(
+        display_name="blob_2.pdf",
+        data=b"test data 2",
+        mime_type="application/pdf",
+    )
+    user_message_2 = types.Content(parts=[types.Part(inline_data=blob_2)])
+    await self.plugin.on_user_message_callback(
+        invocation_context=self.mock_context, user_message=user_message_2
+    )
+
+    # Verify state is updated
+    assert self.mock_context.session.state[key] == {"blob_2.pdf": 0}
+
+    # 4. Second Turn - Trigger before agent callback
+    callback_context_2 = Mock()
+    callback_context_2.state = self.mock_context.session.state
+    callback_context_2.actions = Mock()
+    callback_context_2.actions.artifact_delta = {}
+    await self.plugin.before_agent_callback(
+        agent=Mock(), callback_context=callback_context_2
+    )
+
+    # Verify artifact_delta is updated and state is cleared
+    assert callback_context_2.actions.artifact_delta == {"blob_2.pdf": 0}
+    assert self.mock_context.session.state[key] == {}
