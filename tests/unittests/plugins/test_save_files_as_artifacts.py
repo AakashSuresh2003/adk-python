@@ -526,6 +526,7 @@ class TestSaveFilesAsArtifactsPlugin:
     assert "huge_video.mp4" in result.parts[0].text
     # Note: This assertion will depend on fixing the hardcoded "2GB" in the error message.
     assert "exceeds the maximum supported size" in result.parts[0].text
+
   async def test_artifact_delta_reporting(self):
     """Test that the artifact delta is written to state then event actions."""
 

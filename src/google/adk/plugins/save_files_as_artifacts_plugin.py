@@ -257,6 +257,7 @@ class SaveFilesAsArtifactsPlugin(BasePlugin):
           logger.warning(
               f'Failed to cleanup temp file {temp_file_path}: {cleanup_error}'
           )
+
   async def before_agent_callback(
       self, *, agent: BaseAgent, callback_context: CallbackContext
   ) -> Optional[types.Content]:
