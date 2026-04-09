@@ -52,6 +52,8 @@ class FeatureName(str, Enum):
   TOOL_CONFIG = "TOOL_CONFIG"
   TOOL_CONFIRMATION = "TOOL_CONFIRMATION"
   PLUGGABLE_AUTH = "PLUGGABLE_AUTH"
+  SNAKE_CASE_SKILL_NAME = "SNAKE_CASE_SKILL_NAME"
+  IN_MEMORY_SESSION_SERVICE_LIGHT_COPY = "IN_MEMORY_SESSION_SERVICE_LIGHT_COPY"
 
 
 class FeatureStage(Enum):
@@ -161,6 +163,12 @@ _FEATURE_REGISTRY: dict[FeatureName, FeatureConfig] = {
     ),
     FeatureName.PLUGGABLE_AUTH: FeatureConfig(
         FeatureStage.EXPERIMENTAL, default_on=True
+    ),
+    FeatureName.SNAKE_CASE_SKILL_NAME: FeatureConfig(
+        FeatureStage.EXPERIMENTAL, default_on=False
+    ),
+    FeatureName.IN_MEMORY_SESSION_SERVICE_LIGHT_COPY: FeatureConfig(
+        FeatureStage.WIP, default_on=False
     ),
 }
 
